@@ -1,7 +1,7 @@
 import { reactive, shallowRef } from "vue";
 import type { Analysis, StageDocument } from "../../../shared/types";
 import { analyse } from "../lib/analyse";
-import { demoBuffer } from "../lib/demo";
+import { demoBuffer, demoChannels, DEMO_RATE } from "../lib/demo";
 export function createAudio(doc: StageDocument) {
   const state = reactive({
     playing: false,
@@ -24,6 +24,8 @@ export function createAudio(doc: StageDocument) {
     analyser: AnalyserNode,
     gain: GainNode,
     destination: MediaStreamAudioDestinationNode;
+  // Captured at a fixed rate so exports are device-independent: the live graph
+  // resamples this on playback, the exporter reads it as-is.
   let buffer: AudioBuffer,
     node: AudioBufferSourceNode | MediaStreamAudioSourceNode | undefined,
     mic: MediaStream | undefined;
@@ -104,7 +106,14 @@ export function createAudio(doc: StageDocument) {
     state.loading = true;
     state.error = "";
     try {
-      const next = await ctx.decodeAudioData(await file.arrayBuffer());
+      // Decode at a fixed 48 kHz: the live context would resample to the
+      // device rate, which would make the same file export differently on
+      // different machines. The graph resamples on playback as needed.
+      const decoder = new OfflineAudioContext(2, 1, DEMO_RATE);
+      const data = await file.arrayBuffer();
+      // An OfflineAudioContext's decodeAudioData resamples to its rate, so the
+      // buffer is already 48 kHz whatever the file's native rate was.
+      const next = await decoder.decodeAudioData(data);
       if (ticket !== epoch) return;
       detach();
       buffer = next;
@@ -158,6 +167,41 @@ export function createAudio(doc: StageDocument) {
     state.duration = 16;
     await play();
   }
+  /**
+   * View of the currently loaded, replayable track.
+   *
+   * A microphone is a live input, not material that can be rendered offline:
+   * this returns null so the exporter can refuse instead of encoding silence
+   * for input that was never captured. Everything else is held at a fixed
+   * 48 kHz, so exports do not depend on the machine's output rate.
+   */
+  function capture() {
+    if (state.source === "mic") return null;
+    // Decoded files only exist once `init` has run; the demo is generated from
+    // code, so it can be exported without ever creating an AudioContext.
+    if (!buffer && state.source === "demo" && !state.loading) {
+      const channels = demoChannels(DEMO_RATE);
+      return {
+        channels,
+        sampleRate: DEMO_RATE,
+        duration: channels[0].length / DEMO_RATE,
+        name: state.name,
+        source: state.source,
+        loading: state.loading,
+      };
+    }
+    if (!buffer) return null;
+    return {
+      channels: Array.from({ length: buffer.numberOfChannels }, (_, c) =>
+        buffer.getChannelData(c),
+      ),
+      sampleRate: buffer.sampleRate,
+      duration: buffer.duration,
+      name: state.name,
+      source: state.source,
+      loading: state.loading,
+    };
+  }
   function dispose() {
     ++epoch;
     cancelAnimationFrame(raf);
@@ -167,6 +211,7 @@ export function createAudio(doc: StageDocument) {
   return {
     state,
     frame,
+    capture,
     play,
     pause,
     file,

@@ -1,6 +1,15 @@
 import type { Analysis, Scene, Theme } from "../../../shared/types";
+
+/**
+ * The live stage draws on a canvas element; the offline renderer draws on an
+ * OffscreenCanvas in a worker. Both share the same 2D API surface used here.
+ */
+export type StageContext =
+  | CanvasRenderingContext2D
+  | OffscreenCanvasRenderingContext2D;
+
 export function drawScene(
-  c: CanvasRenderingContext2D,
+  c: StageContext,
   w: number,
   h: number,
   s: Scene,

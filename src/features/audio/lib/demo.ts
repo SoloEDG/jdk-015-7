@@ -1,9 +1,22 @@
-export function demoBuffer(ctx: AudioContext): AudioBuffer {
-  const rate = ctx.sampleRate,
-    b = ctx.createBuffer(2, rate * 16, rate);
-  for (let c = 0; c < 2; c++) {
-    const d = b.getChannelData(c);
-    for (let i = 0; i < d.length; i++) {
+const cache = new Map<number, Float32Array<ArrayBuffer>[]>();
+
+/**
+ * Deterministic demo material, generated the same way at any sample rate.
+ * Cached because the export panel asks for it on every render.
+ */
+export function demoChannels(rate: number): Float32Array<ArrayBuffer>[] {
+  const cached = cache.get(rate);
+  if (cached) return cached;
+  const generated = generate(rate);
+  cache.set(rate, generated);
+  return generated;
+}
+
+function generate(rate: number): Float32Array<ArrayBuffer>[] {
+  const length = Math.round(rate * 16);
+  return [0, 1].map((c) => {
+    const d = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
       const t = i / rate,
         beat = t % 0.5,
         bar = Math.floor(t / 2) % 4,
@@ -20,6 +33,16 @@ export function demoBuffer(ctx: AudioContext): AudioBuffer {
         0.12;
       d[i] = (kick * 0.65 + pad + hat) * 0.7;
     }
-  }
+    return d;
+  });
+}
+
+/** Fixed 48 kHz: the demo sounds and exports identically on every device. */
+export const DEMO_RATE = 48_000;
+
+export function demoBuffer(ctx: BaseAudioContext): AudioBuffer {
+  const channels = demoChannels(DEMO_RATE);
+  const b = ctx.createBuffer(channels.length, channels[0].length, DEMO_RATE);
+  channels.forEach((data, c) => b.copyToChannel(data, c));
   return b;
 }

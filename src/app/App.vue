@@ -19,11 +19,13 @@ import {
   SignalMeter,
 } from "../features/live";
 import { createRecorder, RecordPanel, TakeList } from "../features/recording";
+import { createExporter, ExportPanel } from "../features/export";
 const doc = createDocument(),
   audio = createAudio(doc),
   scenes = createScenes(doc),
   controls = createControls(doc),
-  recorder = createRecorder();
+  recorder = createRecorder(),
+  exporter = createExporter(audio, scenes, doc);
 const canvas = ref<HTMLCanvasElement>(),
   stage = ref<HTMLElement>();
 const fullError = ref("");
@@ -36,6 +38,13 @@ const unbind = bindShortcuts({
   freeze: controls.freeze,
   tap: controls.tap,
 });
+function locate(interval: { start: number; end: number } | null) {
+  if (!interval) return;
+  exporter.setRange(
+    Math.max(0, interval.start),
+    Math.max(0.1, interval.end - interval.start),
+  );
+}
 function start() {
   if (canvas.value) recorder.start(canvas.value, audio.stream());
 }
@@ -50,6 +59,7 @@ onUnmounted(() => {
   unbind();
   audio.dispose();
   recorder.dispose();
+  exporter.dispose();
 });
 </script>
 <template>
@@ -124,7 +134,10 @@ onUnmounted(() => {
           :doc="doc"
           :controls="controls"
           :beat="audio.frame.value.beat"
-        /><RecordPanel :recorder="recorder" @start="start" />
+        /><RecordPanel :recorder="recorder" @start="start" /><ExportPanel
+          :exporter="exporter"
+          @locate="locate"
+        />
         <div class="note">
           <Radio :size="19" />
           <p>
